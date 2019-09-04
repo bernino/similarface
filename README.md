@@ -7,7 +7,11 @@ Stores 128d vectors of faces in sqlite so that 2nd+n run is faster.
 - Add images with faces in those directories
 - Create the sqlite3 database as per schema
 - Install all the dependencies (dlib, keras etc.)
+- Google the network resnet50_coco_best_v2.0.1.h5 to download (too big for github)
 - run the program with python3
+
+# Emotions and Objects
+...are turned off by default by you can turn them on and detect emotions and objects in your images as well if desired. These are not stored yet in Sqlite db. Caution: its very CPU/GPU heavy to detect emotions and objects.
 
 # Pickle tips to Sqlite3
 It is possible to dump and load numpy arrays, OpenCV images etc. to Sqlite by using the pickle seriealization functions pickle.dumps() and pickle.loads().
