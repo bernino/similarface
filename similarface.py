@@ -7,7 +7,9 @@ import glob
 from imutils import build_montages
 from imageai.Detection import ObjectDetection
 import keras
+from keras.preprocessing import image
 from keras.models import load_model
+from keras.preprocessing.image import img_to_array
 import sqlite3
  
 # initialisation and general setup 
@@ -16,15 +18,16 @@ known_face_metadata = []
 imgs = []
 imgs2 = []
 
-model = load_model("model_v6_23.hdf5")
+emotion_model_path = '_mini_XCEPTION.102-0.66.hdf5'
+emotion_classifier = load_model(emotion_model_path, compile=False)
+emotions = ["angry" ,"disgust","scared", "happy", "sad", "surprised",
+ "neutral"]
+
 #my_path = os.getcwd()
 #detector = ObjectDetection()
 #detector.setModelTypeAsRetinaNet()
 #detector.setModelPath( os.path.join(my_path , "resnet50_coco_best_v2.0.1.h5"))
 #detector.loadModel()
-
-emotion_dict= {'Angry': 0, 'Disgust': 1, 'Fear': 2, 'Happy': 3, 'Neutral': 4, 'Sad': 5, 'Surprise': 6}
-emotion_label_map = dict((v,k) for k,v in emotion_dict.items()) 
 
 font                   = cv2.FONT_HERSHEY_SIMPLEX
 bottomLeftCornerOfText = (10,100)
@@ -54,6 +57,7 @@ def match_imgs():
         imgs2.append(file2)
     return imgs2
 
+
 def get_encoding(test_img, cur):
     select = 'SELECT * from faces where imagepath = "'+str(test_img)+'"'
     cur.execute(select)
@@ -63,13 +67,16 @@ def get_encoding(test_img, cur):
     else:
         return False
 
+
 def pickleload(subject):
     pickleload = pickle.loads(subject)
     return pickleload
 
+
 def pickledump(subject):
     pickled = pickle.dumps(subject)
     return pickled
+
 
 # build the face encodings 128d vectors and store in dict
 imgs = get_imgs()
@@ -93,44 +100,57 @@ for i, img in enumerate(imgs):
             face_image = current_image[top:bottom, left:right]
             face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
             face_image = cv2.resize(face_image, (150, 150))
-            face_image_pickled = pickledump(face_image)
-
-            #face_imagetest = cv2.resize(face_image, (48,48))
-            #face_imagetest = cv2.cvtColor(face_imagetest, cv2.COLOR_BGR2GRAY)
-            # this is annoying ...:
-            #face_imagetest = np.reshape(face_imagetest, [1, face_imagetest.shape[0], face_imagetest.shape[1], 1])
-            #predicted_emotions = model.predict(face_imagetest)
-            #predicted_emotions = np.argmax(model.predict(face_image))
-            emotions = ""
-            #for (i,j), v in np.ndenumerate(predicted_emotions):
-            #    emotion = emotion_label_map[j]
-            #    emotions += str(emotion) + " - p:"+ str(v) + "\n"
-            #print(emotions)
-            #cv2.imshow("img",face_image)
-            #cv2.imwrite("out.jpg", face_image)
+            ## setting up for emotion detection
+            face_imagetest = cv2.resize(face_image, (64,64))
+            face_imagetest = cv2.cvtColor(face_imagetest, cv2.COLOR_BGR2GRAY)
+            face_imagetest = face_imagetest.astype("float") / 255.0
+            face_imagetest = img_to_array(face_imagetest)
+            face_imagetest = np.expand_dims(face_imagetest, axis=0)
+            predicted_emotions = emotion_classifier.predict(face_imagetest)[0]
+            #max_emotion_probability = np.max(predicted_emotions)
+            #max_emotion = emotions[predicted_emotions.argmax()]
+            predicted_emotions = predicted_emotions.tolist()
+            #emotionstring = ""
+            #for j, v in enumerate(predicted_emotions):
+            #    emotion = emotions[j]
+            #    emotionstring += str(emotion) + " - p:"+ str(v) + "\n"
+            #emotionstring += "mostly " + str(max_emotion) + " with prob: " + str(max_emotion_probability)
+            #print(emotionstring)
+            #cv2.imshow(img,face_image)
             #cv2.waitKey(0)
 
+            # pickling all the variables 
+            face_image_pickled = pickledump(face_image)
             face_encoding_pickled = pickledump(face_encoding)
             face_location_pickled = pickledump(face_location)
-            entities = (face_location_pickled, face_encoding_pickled, img, face_image_pickled)
-            cur.execute("INSERT INTO faces(face_location, face_encoding, imagepath, face) VALUES(?,?,?,?)", entities)
+
+            #entities = (face_location_pickled, face_encoding_pickled, img, face_image_pickled)
+            #cur.execute("INSERT INTO faces(face_location, face_encoding, imagepath, face) VALUES(?,?,?,?)", entities)
+            entities = (face_location_pickled, face_encoding_pickled, img, face_image_pickled, 
+                    predicted_emotions[0], predicted_emotions[1] , predicted_emotions[2], predicted_emotions[3],
+                    predicted_emotions[4], predicted_emotions[5], predicted_emotions[6])
+            cur.execute("INSERT INTO faces(face_location, face_encoding, imagepath, face, angry, disgust, fear, happy, sad, surprise, neutral) VALUES(?,?,?,?,?,?,?,?,?,?,?)", entities)
             conn.commit()
     else:
         print("using already done data for {}".format(data[3]))
         face_encoding = pickleload(data[2])
         face_location_pickled = pickleload(data[1])
         face_image = pickleload(data[4])
+        # todo - get all emotions as well though not used
 
     known_face_encodings.append(face_encoding)
     known_face_metadata.append({
         "encoding": face_encoding,
         "image": img,
-        "face": face_image
+        "face": face_image,
     })
-                #"emotions": predicted_emotions
+        #"emotions": predicted_emotions
+
 
 # find the clusters from the face encodings
 # output a montage of faces
+# be polite to the db
+conn.close()
 imgs_to_match = match_imgs()
 for k, img2 in enumerate(imgs_to_match):
     current_image2 = face_recognition.load_image_file(img2)
