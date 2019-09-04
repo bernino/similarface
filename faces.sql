@@ -5,6 +5,14 @@ CREATE TABLE IF NOT EXISTS "faces" (
 	"face_location"	BLOB,
 	"face_encoding"	BLOB,
 	"imagepath"	TEXT,
-	"face"	BLOB
+	"face"	BLOB,
+	"objects"	TEXT,
+	"angry"	REAL,
+	"disgust"	REAL,
+	"fear"	REAL,
+	"happy"	REAL,
+	"neutral"	REAL,
+	"sad"	REAL,
+	"surprise"	REAL
 );
 COMMIT;

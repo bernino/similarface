@@ -11,7 +11,9 @@ from keras.preprocessing import image
 from keras.models import load_model
 from keras.preprocessing.image import img_to_array
 import sqlite3
- 
+
+# inspired from https://github.com/omar178/Emotion-recognition/blob/master/real_time_video.py
+
 # initialisation and general setup 
 known_face_encodings = []
 known_face_metadata = []
@@ -82,7 +84,7 @@ def pickledump(subject):
 imgs = get_imgs()
 for i, img in enumerate(imgs):
     data = get_encoding(img, cur)
-    objectsfile = str(i)+"-objects.jpg"
+    objectsfile = str(img)+"-objects.jpg"
     if not data:
         print("encoding "+ str(img))
         current_image = face_recognition.load_image_file(img)
