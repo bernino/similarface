@@ -8,13 +8,16 @@ from imutils import build_montages
 from imageai.Detection import ObjectDetection
 import keras
 from keras.models import load_model
-
+import sqlite3
+ 
+# initialisation and general setup 
 known_face_encodings = []
 known_face_metadata = []
 imgs = []
+imgs2 = []
 
 model = load_model("model_v6_23.hdf5")
-my_path = os.getcwd()
+#my_path = os.getcwd()
 #detector = ObjectDetection()
 #detector.setModelTypeAsRetinaNet()
 #detector.setModelPath( os.path.join(my_path , "resnet50_coco_best_v2.0.1.h5"))
@@ -29,78 +32,134 @@ fontScale              = 0.5
 fontColor              = (255,255,255)
 lineType               = 1
 
-# not being used for the moment
-def save_known_faces():
-    with open("known_faces.dat", "wb") as face_data_file:
-        face_data = [known_face_encodings, known_face_metadata]
-        pickle.dump(face_data, face_data_file)
-        print("Known faces backed up to disk.")
+def sql_connection():
+    try:
+        conn = sqlite3.connect('similarfacesqlite.db')
+        return conn
+    except Error:
+        print(Error)
 
+conn = sql_connection()
+#conn.set_trace_callback(print)
+cur = conn.cursor()
 
 def get_imgs():
-    for file in glob.glob('face/*.jpg'):
+    for file in glob.glob('faces/*.*'):
         imgs.append(file)
     return imgs
 
 
+def match_imgs():
+    for file2 in glob.glob('tomatch/*.*'):
+        imgs2.append(file2)
+    return imgs2
+
+def get_encoding(test_img, cur):
+    select = 'SELECT * from faces where imagepath = "'+str(test_img)+'"'
+    cur.execute(select)
+    data = cur.fetchone()
+    if data:
+        return data
+    else:
+        return False
+
+def pickleload(subject):
+    pickleload = pickle.loads(subject)
+    return pickleload
+
+def pickledump(subject):
+    pickled = pickle.dumps(subject)
+    return pickled
+
 # build the face encodings 128d vectors and store in dict
 imgs = get_imgs()
 for i, img in enumerate(imgs):
-    print("running "+ str(img))
+    data = get_encoding(img, cur)
     objectsfile = str(i)+"-objects.jpg"
-    current_image = face_recognition.load_image_file(img)
-    face_locations = face_recognition.face_locations(current_image)
-    face_encodings = face_recognition.face_encodings(
-                     current_image, 
-                     face_locations)
-    #detections = detector.detectObjectsFromImage(input_image=img, output_image_path=os.path.join(my_path , objectsfile))
-    #for eachobj in detections:
-    #    print(str(eachobj["name"]) + " : " + str(eachobj["percentage_probability"]) )
+    if not data:
+        print("encoding "+ str(img))
+        current_image = face_recognition.load_image_file(img)
+        face_locations = face_recognition.face_locations(current_image)
+        face_encodings = face_recognition.face_encodings(
+                         current_image, 
+                         face_locations)
+        #detections = detector.detectObjectsFromImage(input_image=img, output_image_path=os.path.join(my_path , objectsfile))
+        #for eachobj in detections:
+        #    print(str(eachobj["name"]) + " : " + str(eachobj["percentage_probability"]) )
+        for face_location, face_encoding in zip(face_locations, face_encodings):
+            # Grab the image of the the face
+            # store everything in db
+            top, right, bottom, left = face_location
+            face_image = current_image[top:bottom, left:right]
+            face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+            face_image = cv2.resize(face_image, (150, 150))
+            face_image_pickled = pickledump(face_image)
 
-    for face_location, face_encoding in zip(face_locations, face_encodings):
-        # Grab the image of the the face
-        top, right, bottom, left = face_location
-        face_image = current_image[top:bottom, left:right]
-        face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
-        face_image = cv2.resize(face_image, (150, 150))
-        face_imagetest = cv2.resize(face_image, (48,48))
-        face_imagetest = cv2.cvtColor(face_imagetest, cv2.COLOR_BGR2GRAY)
-        face_imagetest = np.reshape(face_imagetest, [1, face_imagetest.shape[0], face_imagetest.shape[1], 1])
-        predicted_emotions = model.predict(face_imagetest)
-        #predicted_emotions = np.argmax(model.predict(face_image))
-        emotions = ""
-        for (i,j), v in np.ndenumerate(predicted_emotions):
-            emotion = emotion_label_map[j]
-            emotions += str(emotion) + " - p:"+ str(v) + "\n"
-        print(emotions)
-        cv2.imshow("img",face_image)
-        cv2.imwrite("out.jpg", face_image)
-        cv2.waitKey(0)
+            #face_imagetest = cv2.resize(face_image, (48,48))
+            #face_imagetest = cv2.cvtColor(face_imagetest, cv2.COLOR_BGR2GRAY)
+            # this is annoying ...:
+            #face_imagetest = np.reshape(face_imagetest, [1, face_imagetest.shape[0], face_imagetest.shape[1], 1])
+            #predicted_emotions = model.predict(face_imagetest)
+            #predicted_emotions = np.argmax(model.predict(face_image))
+            emotions = ""
+            #for (i,j), v in np.ndenumerate(predicted_emotions):
+            #    emotion = emotion_label_map[j]
+            #    emotions += str(emotion) + " - p:"+ str(v) + "\n"
+            #print(emotions)
+            #cv2.imshow("img",face_image)
+            #cv2.imwrite("out.jpg", face_image)
+            #cv2.waitKey(0)
 
-        known_face_encodings.append(face_encoding)
-        known_face_metadata.append({
-            "encoding": face_encoding,
-            "image": img,
-            "face": face_image,
-            "emotions": predicted_emotions
-        })
+            face_encoding_pickled = pickledump(face_encoding)
+            face_location_pickled = pickledump(face_location)
+            entities = (face_location_pickled, face_encoding_pickled, img, face_image_pickled)
+            cur.execute("INSERT INTO faces(face_location, face_encoding, imagepath, face) VALUES(?,?,?,?)", entities)
+            conn.commit()
+    else:
+        print("using already done data for {}".format(data[3]))
+        face_encoding = pickleload(data[2])
+        face_location_pickled = pickleload(data[1])
+        face_image = pickleload(data[4])
+
+    known_face_encodings.append(face_encoding)
+    known_face_metadata.append({
+        "encoding": face_encoding,
+        "image": img,
+        "face": face_image
+    })
+                #"emotions": predicted_emotions
 
 # find the clusters from the face encodings
 # output a montage of faces
-for j, face in enumerate(known_face_encodings):
-    faces = []
-    print(j)
-    face_distances = face_recognition.face_distance(known_face_encodings, face)
-    original_face = known_face_metadata[j]["image"]
-    original_face_pic = known_face_metadata[j]["face"]
-    for i, face_distance in enumerate(face_distances):
-        matching_face = known_face_metadata[i]["image"]
-        if face_distance < 0.62:
-            print("Added {} to {} with distance {}".format(face_distance, matching_face, original_face))
-            image = known_face_metadata[i]["face"]
-            faces.append(image)
-    montage = build_montages(faces, (96, 96), (5, 5))[0]
-    montagefile = str(j)+".jpg"
-    cv2.imshow(montagefile, montage)
-    cv2.imwrite(montagefile, montage)
-    cv2.waitKey(0)
+imgs_to_match = match_imgs()
+for k, img2 in enumerate(imgs_to_match):
+    current_image2 = face_recognition.load_image_file(img2)
+    face_locations2 = face_recognition.face_locations(current_image2)
+    face_encodings2 = face_recognition.face_encodings(
+                     current_image2, 
+                     face_locations2)
+    m = 0
+    for face_location2, face_encoding2 in zip(face_locations2, face_encodings2):
+        print("matching face {}".format(img2))
+        faces = []
+        #original_face = known_face_metadata[j]["image"]
+        #original_face_pic = known_face_metadata[j]["face"]
+        top, right, bottom, left = face_location2
+        face_image2 = current_image2[top:bottom, left:right]
+        face_image2 = cv2.cvtColor(face_image2, cv2.COLOR_BGR2RGB)
+        face_image2 = cv2.resize(face_image2, (150, 150))
+        faces.append(face_image2)
+        for f, faces_encoded in enumerate(known_face_encodings):
+            face_distances = face_recognition.face_distance([faces_encoded], face_encoding2)
+            for i, face_distance in enumerate(face_distances): 
+                matching_face = known_face_metadata[f]["image"] 
+                if face_distance < 0.62:
+                    print("Added {} to {} with distance {}".format(matching_face, img2, face_distance))
+                    image = known_face_metadata[f]["face"]
+                    faces.append(image)
+        montage = build_montages(faces, (96, 96), (5, 5))[0]
+        montagefile = str(m)+".jpg"
+        m += 1
+        cv2.imshow(montagefile, montage)
+        cv2.imwrite(montagefile, montage)
+        cv2.waitKey(0)
