@@ -5,12 +5,15 @@ import pickle
 import os
 import glob
 from imutils import build_montages
-from imageai.Detection import ObjectDetection
+#from imageai.Detection import ObjectDetection
 import keras
 from keras.preprocessing import image
 from keras.models import load_model
 from keras.preprocessing.image import img_to_array
 import sqlite3
+import json
+import cvlib as cv
+from cvlib.object_detection import draw_bbox
 
 # inspired from https://github.com/omar178/Emotion-recognition/blob/master/real_time_video.py
 
@@ -31,11 +34,11 @@ emotions = ["angry" ,"disgust","scared", "happy", "sad", "surprised",
 #detector.setModelPath( os.path.join(my_path , "resnet50_coco_best_v2.0.1.h5"))
 #detector.loadModel()
 
-font                   = cv2.FONT_HERSHEY_SIMPLEX
-bottomLeftCornerOfText = (10,100)
-fontScale              = 0.5
-fontColor              = (255,255,255)
-lineType               = 1
+#font                   = cv2.FONT_HERSHEY_SIMPLEX
+#bottomLeftCornerOfText = (10,100)
+#fontScale              = 0.5
+#fontColor              = (255,255,255)
+#lineType               = 1
 
 def sql_connection():
     try:
@@ -80,11 +83,13 @@ def pickledump(subject):
     return pickled
 
 
-# build the face encodings 128d vectors and store in dict
+# build the face encodings 128d vectors and store in db
+# detect emotions and store in db
+# detect objects and store in db
 imgs = get_imgs()
 for i, img in enumerate(imgs):
     data = get_encoding(img, cur)
-    objectsfile = str(img)+"-objects.jpg"
+    #objectsfile = str(img)+"-objects.jpg"
     if not data:
         print("encoding "+ str(img))
         current_image = face_recognition.load_image_file(img)
@@ -92,9 +97,16 @@ for i, img in enumerate(imgs):
         face_encodings = face_recognition.face_encodings(
                          current_image, 
                          face_locations)
+        image = cv2.imread(img)
+        bbox, label, conf = cv.detect_common_objects(image)
         #detections = detector.detectObjectsFromImage(input_image=img, output_image_path=os.path.join(my_path , objectsfile))
-        #for eachobj in detections:
-        #    print(str(eachobj["name"]) + " : " + str(eachobj["percentage_probability"]) )
+        detections = dict(label=label, conf=conf, bbox=bbox)
+        #for m, things in enumerate(detections):
+        #    # this overwrites detections and adds the array as a list
+        #    listed = things['box_points'].tolist()
+        #    things['box_points']=listed
+        objects_detected_json = json.dumps(detections)
+
         for face_location, face_encoding in zip(face_locations, face_encodings):
             # Grab the image of the the face
             # store everything in db
@@ -126,12 +138,10 @@ for i, img in enumerate(imgs):
             face_encoding_pickled = pickledump(face_encoding)
             face_location_pickled = pickledump(face_location)
 
-            #entities = (face_location_pickled, face_encoding_pickled, img, face_image_pickled)
-            #cur.execute("INSERT INTO faces(face_location, face_encoding, imagepath, face) VALUES(?,?,?,?)", entities)
-            entities = (face_location_pickled, face_encoding_pickled, img, face_image_pickled, 
+            entities = (objects_detected_json, face_location_pickled, face_encoding_pickled, img, face_image_pickled, 
                     predicted_emotions[0], predicted_emotions[1] , predicted_emotions[2], predicted_emotions[3],
                     predicted_emotions[4], predicted_emotions[5], predicted_emotions[6])
-            cur.execute("INSERT INTO faces(face_location, face_encoding, imagepath, face, angry, disgust, fear, happy, sad, surprise, neutral) VALUES(?,?,?,?,?,?,?,?,?,?,?)", entities)
+            cur.execute("INSERT INTO faces(objects, face_location, face_encoding, imagepath, face, angry, disgust, fear, happy, sad, surprise, neutral) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", entities)
             conn.commit()
     else:
         print("using already done data for {}".format(data[3]))
